@@ -1,0 +1,3 @@
+This is a pure simulation to verify bind 9.8 behavior from yingdi's paper.
+''Authority Server Selection of DNS Caching Resolvers''
+
