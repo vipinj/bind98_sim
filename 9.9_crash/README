@@ -1,0 +1,1 @@
+for ns 7, we added 2 secs to the value of RTT, and with the old value, it becomes the highest queried server

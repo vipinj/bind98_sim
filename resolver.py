@@ -1,6 +1,8 @@
 #!/usr/bin/python
 
+import sys
 import time
+import sched
 import logging
 import random
 import Queue
@@ -13,13 +15,13 @@ for i in range(0,13):
 
 
 class Client(threading.Thread):
-    def __init__(self, resv):
+    def __init__(self, resv, i):
         super(Client, self).__init__()
         self.resv = resv
+        self.cid = i
 
     def run(self):
-        t = random.randint(1,10000)
-        if t == self.resv.run(t):
+        if self.cid == self.resv.run(self.cid):
             return
 
 class AuthServer(object):
@@ -29,10 +31,18 @@ class AuthServer(object):
         self.ns_dict = {}
         for i in range(0,13):
             self.ns_dict[i] =  50 + i*10
-    def auth(self, ns): 
+        self.lgr = logging.getLogger('resolver')
+
+    def auth(self, ns, i): 
         sleep_time =  self.ns_dict[ns]
-        time.sleep(sleep_time * 0.001)
-        return sleep_time
+        #        if i%100 == 0:
+        if ns == 7:
+            sleep_time = sleep_time*0.001 + 2
+            time.sleep(sleep_time)
+            return sleep_time + 2000
+        else:
+            time.sleep(sleep_time*0.001)
+            return sleep_time
 
 class Resolver(object):
     ''' client + resolver, generates queries and records rtts'''
@@ -44,31 +54,70 @@ class Resolver(object):
         with self.rtt_l:
             for i in range(0,13): # init with same rtts
                 self.rtt_list.insert(i, (50 + i*10))
+        self.statusl = threading.RLock()
+        self.status = {}
+
+    def monitor(self):
+        ''' monitor thread is responsible for monitoring timed out
+        fx calls and do something about them '''
+        self.lgr.debug('##### Monitor running #####')
+        with self.statusl:
+            while self.status:
+                t = time.time()
+                try:
+                    for k,v in self.status.iteritems():
+                        if v[len(v)-1] < t: # packet has not returned, even after the RTT value
+                            self.lgr.debug('packet resent %s %s'
+                                           %(k, ','.join([str(i) for i in v])))
+                            self.run(k)
+                except RuntimeError, e: 
+                    self.lgr.error('%s' %e)
+                    # error for dictionary changing size, harmless by design.
+                    pass
 
     def run(self, i):
+        if i == 1500 : 
+            threading.Thread(target = self.monitor())
         lgr = logging.getLogger('resolver')
         with self.rtt_l:
-            # ns = self.rtt_list.index(min(self.rtt_list))
             tmp = min(self.rtt_list)
             ns = self.rtt_list.index(tmp)
-            t_l = [str(i) for i in self.rtt_list]
+            t_l = [str(ii) for ii in self.rtt_list]
             t_l2 = ','.join(t_l)
-            lgr.debug('query sent to %d with %s' %(ns, t_l2))
             for j in range(13):
                 if j == ns:
                     continue
                 else:
                     self.rtt_list[j] = self.rtt_list[j] * 0.98
 
-        ret = self.auths.auth(ns)
+        # timeout infrastructure
+        old_rtt = (50 + ns*10)*0.001 # 
+        tstamp = time.time()
+        with self.statusl:
+            if i in self.status:
+                self.status[i].append(tstamp + old_rtt)
+            else:
+                # print i
+                self.status[i] = []
+                self.status[i].append(tstamp + old_rtt)
+                
+        lgr.debug('query %d sent to %d with %s' %(i, ns, t_l2))
+        st1 = '1,' + str(i)+','+ "{0:.5f}".format(time.time())
+        print st1
+        ret = self.auths.auth(ns, i)
+        st2 = '2,' + str(i)+','+ "{0:.5f}".format(time.time())
+        print st2
         lgr.debug('query %d returned with rtt %s' %(i, ret))
+
+        with self.statusl:
+            self.status.pop(i, None)
         with self.rtt_l:
             # print time.time() - t
             tmp = self.rtt_list[ns] 
             self.rtt_list[ns] = ret
             #(tmp * 0.70 + ret * 0.30)
         return i
-
+    
 def main():
 
     lgr = logging.getLogger('resolver')
@@ -82,10 +131,10 @@ def main():
     auth = AuthServer()
     resv = Resolver(auth)
 
-    for j in range(1,100):
+    for j in range(1,5):
         l = []
         for i in range(1000):
-            l.append(Client(resv))
+            l.append(Client(resv, i+j*1000))
 
         [i.start() for i in l]
         [i.join() for i in l]
