@@ -1,0 +1,4 @@
+The stats in this folder basically help to determine, how often(based on query number) should the monitor thread run.
+It seems that every 400,500 or 1000 queries is a good number.
+But this is valid when we only wait 2*RTT of the previous server, now we have to identify the optimal value of this k, 
+i.e. how much we should wait

@@ -1,3 +1,23 @@
+375, query 1469 returned with rtt 160
+377, query 1452 returned with rtt 170
+379, query 1498 returned with rtt 150
+380, query 1475 returned with rtt 160
+380, query 1458 returned with rtt 170
+380, query 1481 returned with rtt 160
+383, query 1487 returned with rtt 160
+383, query 1464 returned with rtt 170
+385, query 1493 returned with rtt 160
+386, query 1470 returned with rtt 170
+389, query 1499 returned with rtt 160
+389, query 1476 returned with rtt 170
+391, query 1482 returned with rtt 170
+394, query 1488 returned with rtt 170
+395, query 1494 returned with rtt 170
+399, query 1501 returned with rtt 170
+541, query 1165 returned with rtt 170
+542, dictionary changed size during iteration
+542, packet resent 1173 1375370907.51
+542, query 1173 sent to 7 with 3.19579890226e-05,0.000139730703297,0.000421320971616,0.00146275254008,0.00320525720823,0.00370824333406,0.00424725912897,3.93571653835e-06,0.00512192659338,137.2,3.93931452491e-06,3.95482807075e-06,170
 36, query 1000 sent to 0 with 50,60,70,80,90,100,110,120,130,140,150,160,170
 36, query 1001 sent to 0 with 50,58.8,68.6,78.4,88.2,98.0,107.8,117.6,127.4,137.2,147.0,156.8,166.6
 37, query 1002 sent to 0 with 50,57.624,67.228,76.832,86.436,96.04,105.644,115.248,124.852,134.456,144.06,153.664,163.268

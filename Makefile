@@ -1,4 +1,4 @@
 clean:
-	rm *~ *.log *.pyc
+	rm *~ *.log *.pyc *_op
 run:
 	python resolver.py

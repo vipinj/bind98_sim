@@ -1,11 +1,12 @@
 #!/usr/bin/python
-
+# argv[1] is the k factor for how often to run the monitor thread
+# argv[2] is the k' factor for how much to wait for the response(k'*rtt)
 import sys
 import time
-import sched
+#import sched
 import logging
-import random
-import Queue
+#import random
+#import Queue
 import threading
 
 rtt_dict = {}
@@ -21,7 +22,7 @@ class Client(threading.Thread):
         self.cid = i
 
     def run(self):
-        if self.cid == self.resv.run(self.cid):
+        if self.cid == self.resv.run(self.cid, True):
             return
 
 class AuthServer(object):
@@ -35,11 +36,8 @@ class AuthServer(object):
 
     def auth(self, ns, i): 
         sleep_time =  self.ns_dict[ns]
-        #        if i%100 == 0:
         if ns == 7:
-            sleep_time = sleep_time*0.001 + 2
-            time.sleep(sleep_time)
-            return sleep_time + 2000
+            pass
         else:
             time.sleep(sleep_time*0.001)
             return sleep_time
@@ -56,27 +54,33 @@ class Resolver(object):
                 self.rtt_list.insert(i, (50 + i*10))
         self.statusl = threading.RLock()
         self.status = {}
+        self.queryl = threading.RLock()
+        self.query_inprogress = {}
 
     def monitor(self):
         ''' monitor thread is responsible for monitoring timed out
         fx calls and do something about them '''
         self.lgr.debug('##### Monitor running #####')
         with self.statusl:
-            while self.status:
+            if self.status:
                 t = time.time()
                 try:
                     for k,v in self.status.iteritems():
-                        if v[len(v)-1] < t: # packet has not returned, even after the RTT value
+                        # packet has not returned, even after the RTT value
+                        if v[len(v)-1] < t: 
+                            # ns = v[0] # nameserver
                             self.lgr.debug('packet resent %s %s'
                                            %(k, ','.join([str(i) for i in v])))
-                            self.run(k)
+                            self.run(k, False) #runs into a recursion loop based on qids
+
+                            
                 except RuntimeError, e: 
-                    self.lgr.error('%s' %e)
+                    self.lgr.error('%s %s' %(e, sys.exc_info()))
                     # error for dictionary changing size, harmless by design.
                     pass
 
-    def run(self, i):
-        if i == 1500 : 
+    def run(self, i, val):
+        if i % int(sys.argv[1]) == 0 and val: 
             threading.Thread(target = self.monitor())
         lgr = logging.getLogger('resolver')
         with self.rtt_l:
@@ -95,18 +99,31 @@ class Resolver(object):
         tstamp = time.time()
         with self.statusl:
             if i in self.status:
-                self.status[i].append(tstamp + old_rtt)
+                self.status[i].append(tstamp + sys.argv[2]*old_rtt)
             else:
                 # print i
                 self.status[i] = []
-                self.status[i].append(tstamp + old_rtt)
+                # self.status[i].append(ns)
+                self.status[i].append(tstamp + sys.argv[2]*old_rtt)
                 
         lgr.debug('query %d sent to %d with %s' %(i, ns, t_l2))
-        st1 = '1,' + str(i)+','+ "{0:.5f}".format(time.time())
-        print st1
+        # st1 = '1,' + str(i)+','+ "{0:.5f}".format(time.time())
+        # print st1
+             
+        with self.queryl:
+            self.query_inprogress[i] = threading.Thread.ident
+
         ret = self.auths.auth(ns, i)
-        st2 = '2,' + str(i)+','+ "{0:.5f}".format(time.time())
-        print st2
+        if not ret:
+            time.sleep(2)
+            with self.rtt_l:
+                self.rtt_list[ns] = 2000 # for now, the max timeout val=2 sec
+            return i
+        with self.queryl:
+            self.query_inprogress.pop(i, None)
+
+        # st2 = '2,' + str(i)+','+ "{0:.5f}".format(time.time())
+        # print st2
         lgr.debug('query %d returned with rtt %s' %(i, ret))
 
         with self.statusl:
@@ -124,7 +141,7 @@ def main():
     lgr.setLevel(logging.DEBUG)
     fh = logging.FileHandler('bind.log')
     fh.setLevel(logging.DEBUG)
-    frmt = logging.Formatter('%(relativeCreated)d, %(message)s')
+    frmt = logging.Formatter('%(relativeCreated)d, %(levelname)s, %(lineno)d, %(message)s')
     fh.setFormatter(frmt)
     lgr.addHandler(fh)
 

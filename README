@@ -1,3 +1,10 @@
 This is a pure simulation to verify bind 9.8 behavior from yingdi's paper.
 ''Authority Server Selection of DNS Caching Resolvers''
 
+v2: changed RTT for ns7 to 2s+120m
+v3: changed RTT to inf, unresponsive ns
+v4: divide the scenarios into two types, crash and recovery, where auth servers crash and recover, 
+    divide each of the scenario into two, where we do a time base monitoring vs query based monitoring	
+    For all the cases, we identify the value k, which is the optimal choice for figuring out stuff.
+    At this instant, bind's decaying is used (0.98), which is more responsible for decreasing rtt vals.
+    otherwise for this experiment, we keep the rtt's constant with {50..170}
