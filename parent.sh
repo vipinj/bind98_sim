@@ -1,11 +1,18 @@
 #!/bin/bash
-for ((j=1;j<6;j+=1))
+
+function run_m ()
+{
+	python resolver.py $1 $2 
+	awk -v fname=$1 '/returned/{sum+=$9}END{print fname, sum}' bind.log_$2_$1 >> k_hist_$j
+	mv bind.log_$2_$1 trials$2/
+}
+
+for ((j=5;j<11;j+=1))
 do
-    for ((i=100;i<4000;i+=100))
+    mkdir trials$j
+    for ((i=500;i<4000;i+=500))
     do
-	python resolver.py $i $j
-	awk -v fname=$i '/returned/{sum+=$9}END{print fname, sum}' bind.log
-	mv bind.log trials$j/bind.log$i
+	run_m $i $j
     done
-    mv k_hist trials$j/
+    mv k_hist_$j trials$j/
 done

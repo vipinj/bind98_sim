@@ -14,7 +14,6 @@ for i in range(0,13):
     rtt_dict[i] = []
     rtt_dict[i].append(50 + i*10)
 
-
 class Client(threading.Thread):
     def __init__(self, resv, i):
         super(Client, self).__init__()
@@ -56,7 +55,7 @@ class Resolver(object):
         self.status = {}
         self.queryl = threading.RLock()
         self.query_inprogress = {}
-
+        self.tr_list = []
     def monitor(self):
         ''' monitor thread is responsible for monitoring timed out
         fx calls and do something about them '''
@@ -71,8 +70,21 @@ class Resolver(object):
                             # ns = v[0] # nameserver
                             self.lgr.debug('packet resent %s %s'
                                            %(k, ','.join([str(i) for i in v])))
-                            self.run(k, False) #runs into a recursion loop based on qids
-
+                            #self.run(k, False) #runs into a recursion loop based on qids
+                            t = threading.Thread(target=self.run, args = (k, False))
+                            try:
+                                t.start()
+                                self.tr_list.append(t)
+                            except:
+                                l = []
+                                l.append('Thread init error from monitor')
+                                l.append(sys.argv[1])
+                                l.append(sys.argv[2])
+                                st = ' '.join(l)
+                                print st
+                                self.lgr.error('Thread init error from monitor ')
+                                pass
+                            continue
                             
                 except RuntimeError, e: 
                     self.lgr.error('%s %s' %(e, sys.exc_info()))
@@ -81,7 +93,18 @@ class Resolver(object):
 
     def run(self, i, val):
         if i % int(sys.argv[1]) == 0 and val: 
-            threading.Thread(target = self.monitor())
+            try:
+                threading.Thread(target = self.monitor())
+            except:
+                er = []
+                er.append('Thread init error from run')
+                er.append(sys.argv[1])
+                er.append(sys.argv[2])
+                st = ' '.join(er)
+                print st
+                self.lgr.error('Thread init error from run')
+                pass
+                
         lgr = logging.getLogger('resolver')
         with self.rtt_l:
             tmp = min(self.rtt_list)
@@ -99,47 +122,49 @@ class Resolver(object):
         tstamp = time.time()
         with self.statusl:
             if i in self.status:
-                self.status[i].append(tstamp + sys.argv[2]*old_rtt)
+                self.status[i].append(tstamp + int(sys.argv[2])*old_rtt)
             else:
                 # print i
                 self.status[i] = []
-                # self.status[i].append(ns)
-                self.status[i].append(tstamp + sys.argv[2]*old_rtt)
+                self.status[i].append(tstamp + int(sys.argv[2])*old_rtt)
                 
         lgr.debug('query %d sent to %d with %s' %(i, ns, t_l2))
-        # st1 = '1,' + str(i)+','+ "{0:.5f}".format(time.time())
-        # print st1
              
         with self.queryl:
             self.query_inprogress[i] = threading.Thread.ident
 
         ret = self.auths.auth(ns, i)
         if not ret:
+            # print 'OUT'
             time.sleep(2)
             with self.rtt_l:
                 self.rtt_list[ns] = 2000 # for now, the max timeout val=2 sec
+            with self.queryl:
+                self.query_inprogress.pop(i, None)
             return i
         with self.queryl:
             self.query_inprogress.pop(i, None)
 
-        # st2 = '2,' + str(i)+','+ "{0:.5f}".format(time.time())
-        # print st2
         lgr.debug('query %d returned with rtt %s' %(i, ret))
 
         with self.statusl:
             self.status.pop(i, None)
         with self.rtt_l:
-            # print time.time() - t
             tmp = self.rtt_list[ns] 
             self.rtt_list[ns] = ret
             #(tmp * 0.70 + ret * 0.30)
         return i
     
+    def __del__(self):
+        [i.join() for i in self.tr_list]
+
+
 def main():
 
     lgr = logging.getLogger('resolver')
     lgr.setLevel(logging.DEBUG)
-    fh = logging.FileHandler('bind.log')
+    fname='bind.log_'+sys.argv[2]+'_'+sys.argv[1]
+    fh = logging.FileHandler(fname)
     fh.setLevel(logging.DEBUG)
     frmt = logging.Formatter('%(relativeCreated)d, %(levelname)s, %(lineno)d, %(message)s')
     fh.setFormatter(frmt)
@@ -155,6 +180,7 @@ def main():
 
         [i.start() for i in l]
         [i.join() for i in l]
+    resv.__del__()
 
 if __name__ == '__main__':
     main()    
