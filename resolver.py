@@ -1,12 +1,15 @@
 #!/usr/bin/python
-# argv[1] is the k factor for how often to run the monitor thread
-# argv[2] is the k' factor for how much to wait for the response(k'*rtt)
+"""
+Pure simulation for bind 9.8 code-threaded version
+The threads actually sleep, and return after their server's rtt
+argv[1] is the k factor for how often to run the monitor thread
+argv[2] is the k' factor for how much to wait for the response(k'*rtt)
+"""
+
 import sys
 import time
-#import sched
+import sched
 import logging
-#import random
-#import Queue
 import threading
 
 rtt_dict = {}
@@ -35,7 +38,7 @@ class AuthServer(object):
 
     def auth(self, ns, i): 
         sleep_time =  self.ns_dict[ns]
-        if ns == 7:
+        if ns == 7: # crashed server
             pass
         else:
             time.sleep(sleep_time*0.001)
@@ -56,6 +59,22 @@ class Resolver(object):
         self.queryl = threading.RLock()
         self.query_inprogress = {}
         self.tr_list = []
+        self.time_l = threading.RLock()
+        self.time_torun = time.time()
+
+    def run_monitor(self, t_val):
+        if t_val > (self.time_torun + 0.075) and self.query_inprogress:
+            try:
+                t = threading.Thread(target = self.monitor())
+                t.start()
+                self.time_torun = time.time()
+                return
+            except:
+                self.lgr.error('Thread init error from run')
+                return
+        else:
+            return
+        
     def monitor(self):
         ''' monitor thread is responsible for monitoring timed out
         fx calls and do something about them '''
@@ -70,41 +89,25 @@ class Resolver(object):
                             # ns = v[0] # nameserver
                             self.lgr.debug('packet resent %s %s'
                                            %(k, ','.join([str(i) for i in v])))
-                            #self.run(k, False) #runs into a recursion loop based on qids
-                            t = threading.Thread(target=self.run, args = (k, False))
+                            t = threading.Thread(target=self.run, 
+                                                 args = (k, False))
                             try:
                                 t.start()
                                 self.tr_list.append(t)
                             except:
-                                l = []
-                                l.append('Thread init error from monitor')
-                                l.append(sys.argv[1])
-                                l.append(sys.argv[2])
-                                st = ' '.join(l)
-                                print st
                                 self.lgr.error('Thread init error from monitor ')
                                 pass
                             continue
                             
                 except RuntimeError, e: 
+                    """ Dictionary size changes as we remove answered queries, this is
+                    harmless, and is by design """
                     self.lgr.error('%s %s' %(e, sys.exc_info()))
-                    # error for dictionary changing size, harmless by design.
                     pass
 
     def run(self, i, val):
-        if i % int(sys.argv[1]) == 0 and val: 
-            try:
-                threading.Thread(target = self.monitor())
-            except:
-                er = []
-                er.append('Thread init error from run')
-                er.append(sys.argv[1])
-                er.append(sys.argv[2])
-                st = ' '.join(er)
-                print st
-                self.lgr.error('Thread init error from run')
-                pass
-                
+        with self.time_l:
+            self.run_monitor(time.time())
         lgr = logging.getLogger('resolver')
         with self.rtt_l:
             tmp = min(self.rtt_list)
@@ -122,11 +125,11 @@ class Resolver(object):
         tstamp = time.time()
         with self.statusl:
             if i in self.status:
-                self.status[i].append(tstamp + int(sys.argv[2])*old_rtt)
+                self.status[i].append(tstamp + int(sys.argv[1])*old_rtt)
             else:
                 # print i
                 self.status[i] = []
-                self.status[i].append(tstamp + int(sys.argv[2])*old_rtt)
+                self.status[i].append(tstamp + int(sys.argv[1])*old_rtt)
                 
         lgr.debug('query %d sent to %d with %s' %(i, ns, t_l2))
              
@@ -135,7 +138,6 @@ class Resolver(object):
 
         ret = self.auths.auth(ns, i)
         if not ret:
-            # print 'OUT'
             time.sleep(2)
             with self.rtt_l:
                 self.rtt_list[ns] = 2000 # for now, the max timeout val=2 sec
@@ -152,18 +154,17 @@ class Resolver(object):
         with self.rtt_l:
             tmp = self.rtt_list[ns] 
             self.rtt_list[ns] = ret
-            #(tmp * 0.70 + ret * 0.30)
+            #(tmp * 0.70 + ret * 0.30) # both fraction and non fraction
         return i
     
     def __del__(self):
-        [i.join() for i in self.tr_list]
-
+        [i.join() for i in self.tr_list] # everyone is out before resolver exits
 
 def main():
 
     lgr = logging.getLogger('resolver')
     lgr.setLevel(logging.DEBUG)
-    fname='bind.log_'+sys.argv[2]+'_'+sys.argv[1]
+    fname='bind.log'+'_'+sys.argv[1]
     fh = logging.FileHandler(fname)
     fh.setLevel(logging.DEBUG)
     frmt = logging.Formatter('%(relativeCreated)d, %(levelname)s, %(lineno)d, %(message)s')
@@ -172,14 +173,25 @@ def main():
 
     auth = AuthServer()
     resv = Resolver(auth)
+    
+    l = []
+    for i in range(2000):
+        cl = Client(resv, i)
+        l.append(cl)
+        cl.start()
 
-    for j in range(1,5):
-        l = []
-        for i in range(1000):
-            l.append(Client(resv, i+j*1000))
+    [i.join() for i in l]
 
-        [i.start() for i in l]
-        [i.join() for i in l]
+    # sched design for timing events, not that great an idea
+    # l_t1 = []
+    # for i in range(2000):
+    #     l_t1.append(Client(resv, i))
+    # s = sched.scheduler(time.time, time.sleep)
+    # s.enter(0, 1, run_thr, (l_t1, 999))
+    # s.enter(0.5, 1, run_thr, (l_t1, 1001))
+    # s.enter(0.9, 1, join_thr, (l_t1,))
+    # s.run()
+
     resv.__del__()
 
 if __name__ == '__main__':
